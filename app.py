@@ -1,10 +1,12 @@
-from typing import Any, Dict, List, Optional
+from typing import List
 
 import streamlit as st
 from PIL import Image
-from streamlit_drawable_canvas import st_canvas
+from streamlit_drawable_canvas import CanvasResult, st_canvas
 
-from infer import dummy_model
+from infer import forecast, load_model_and_std
+from utils import process_canvas_data
+
 
 # ページの設定
 st.set_page_config(
@@ -13,12 +15,17 @@ st.set_page_config(
 )
 
 st.title("描画予測アプリ")
+st.session_state.saved_models = {}
 
 # サイドバーにモデルパラメータのスライドバーを配置
-st.sidebar.header("モデルパラメータ設定")
-param1: float = st.sidebar.slider("パラメータ1", 0.0, 1.0, 0.5, 0.01)
-param2: int = st.sidebar.slider("パラメータ2", 0, 100, 50, 1)
-param3: float = st.sidebar.slider("パラメータ3", 0.0, 10.0, 5.0, 0.1)
+category: str = st.selectbox("category", ["cat", "bus"])
+temperature: float = st.slider(
+    "temperature", min_value=0.01, max_value=10.0, value=0.5, step=0.1
+)
+sample_step: int = st.slider("sample step", min_value=1, max_value=10, value=1, step=1)
+
+path_to_weight = f"weights/partial_sketchrnn_{category}_amp.pth"
+path_to_std = f"weights/partial_sketchrnn_{category}_amp.json"
 
 # Canvasの設定
 canvas_result = st_canvas(
@@ -26,53 +33,21 @@ canvas_result = st_canvas(
     stroke_width=3,
     stroke_color="#000000",
     background_color="#FFFFFF",
-    width=400,
-    height=400,
+    width=256,
+    height=256,
     drawing_mode="freedraw",
     key="canvas",
 )
 
+if type(canvas_result) is CanvasResult:
+    strokes: List[List[List[float]]] = process_canvas_data(canvas_result, sample_step)
 
-def process_canvas_data(canvas_data: Optional[Any]) -> List[List[List[float]]]:
-    """
-    ストロークデータを処理し、JSON構造に変換する。
-
-    Parameters
-    ----------
-    canvas_data : Optional[Any]
-        Canvasから取得したデータ。存在しない場合は空リストを返す。
-
-    Returns
-    -------
-    List[List[List[float]]]
-        各ストロークのx座標、y座標、タイムスタンプのリスト。
-    """
-    if not canvas_data:
-        return []
-
-    strokes_json: List[List[List[float]]] = []
-    objects: List[Dict[str, Any]] = canvas_data.json_data.get("objects", [])
-
-    for stroke in objects:
-        if stroke.get("type") == "path":
-            x_coords: List[float] = []
-            y_coords: List[float] = []
-            t_coords: List[int] = []
-            points: List[List[float]] = stroke.get("path", [])
-            for i, point in enumerate(points):
-                if len(point) >= 3:
-                    x_coords.append(point[1])
-                    y_coords.append(point[2])
-                    t_coords.append(i)
-            strokes_json.append([x_coords, y_coords, t_coords])
-
-    return strokes_json
-
-
-strokes: List[List[List[float]]] = process_canvas_data(canvas_result)
-
-# モデルの予測結果を表示
-st.subheader("予測結果")
-if st.button("予測を実行"):
-    prediction_image: Image.Image = dummy_model(strokes, param1, param2, param3)
-    st.image(prediction_image, use_container_width=True)
+    # モデルの予測結果を表示
+    if st.button("予測を実行"):
+        if category not in st.session_state.saved_models:
+            model, std = load_model_and_std(path_to_weight, path_to_std)
+            st.session_state[category] = {"model": model, "std": std}
+        model = st.session_state[category]["model"]
+        std = st.session_state[category]["std"]
+        prediction_image: Image.Image = forecast(strokes, model, std, temperature)
+        st.image(prediction_image)
