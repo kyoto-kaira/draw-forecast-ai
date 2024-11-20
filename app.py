@@ -10,11 +10,12 @@ from utils import process_canvas_data
 
 # ページの設定
 st.set_page_config(
-    page_title="描画予測アプリ",
+    page_title="お絵描き予測AI",
+    page_icon="🎨",
     layout="wide",
 )
 
-st.title("描画予測アプリ")
+st.title("お絵描き予測AI")
 st.session_state.saved_models = {}
 
 # サイドバーにモデルパラメータのスライドバーを配置
